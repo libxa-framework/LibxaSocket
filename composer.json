@@ -6,7 +6,7 @@
     "keywords": ["libxa", "libxaframe", "websocket", "realtime", "workerman", "reverb"],
     "require": {
         "php": "^8.3",
-        "libxa/framework": "^0.6.0",
+        "libxa/framework": "^0.8.0",
         "workerman/workerman": "^4.1",
         "symfony/console": "^7.0"
     },
