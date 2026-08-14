@@ -4,22 +4,26 @@ declare(strict_types=1);
 
 namespace LibxaSocket\Logging;
 
-use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * Console-friendly logger for the socket server, used for the startup
- * banner and (optionally, with --debug) per-connection/message logging.
+ * What the server prints.
+ *
+ * Debug output is off unless asked for: a busy server logging every frame
+ * writes more than it serves, and on a terminal that is also the thing keeping
+ * the process in the foreground.
  */
 class CliLogger
 {
-    public function __construct(protected SymfonyStyle $output, protected bool $debug = false)
-    {
+    public function __construct(
+        protected OutputInterface $output,
+        protected bool $debug = false,
+    ) {
     }
 
-    public function info(string $title, ?string $detail = null): void
+    public function info(string $message): void
     {
-        $line = $detail !== null ? "<info>{$title}</info> {$detail}" : "<info>{$title}</info>";
-        $this->output->writeln($line);
+        $this->output->writeln("<info>{$message}</info>");
     }
 
     public function error(string $message): void
@@ -32,22 +36,17 @@ class CliLogger
         $this->output->writeln("<comment>{$message}</comment>");
     }
 
-    /**
-     * Log a connection lifecycle event (connect/disconnect/subscribe/...),
-     * only when --debug is enabled — this can get noisy fast otherwise.
-     */
-    public function event(string $label, string $detail = ''): void
+    public function debug(string $message): void
     {
         if (! $this->debug) {
             return;
         }
 
-        $time = date('H:i:s');
-        $this->output->writeln("  <fg=gray>[{$time}]</> <fg=cyan>{$label}</> {$detail}");
+        $this->output->writeln('  <fg=gray>[' . date('H:i:s') . ']</> ' . $message);
     }
 
-    public function line(int $count = 1): void
+    public function isDebug(): bool
     {
-        $this->output->newLine($count);
+        return $this->debug;
     }
 }

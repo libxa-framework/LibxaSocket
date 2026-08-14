@@ -7,38 +7,84 @@ namespace LibxaSocket\Auth;
 use LibxaSocket\Application;
 
 /**
- * Verifies signed channel-authorization requests for private/presence
- * channels (mirrors Pusher/Reverb's auth scheme: the browser can't join
- * `private-*` or `presence-*` channels without a signature the server-side
- * app vouches for).
+ * Signatures for private and presence channel subscriptions.
  *
- * The signed string is `{socketId}:{channelName}` — or, for presence
- * channels, `{socketId}:{channelName}:{channelData}` where channelData is
- * the JSON-encoded user info the channel will expose to other members.
+ * A browser cannot join `private-*` or `presence-*` on its own say-so. It asks
+ * your application over HTTP, your application decides whether that user may
+ * listen, and hands back a signature. This is both ends of that: the signing
+ * your endpoint does, and the verification the socket server does.
+ *
+ * The signed string is `{socketId}:{channel}`, or for presence channels
+ * `{socketId}:{channel}:{channelData}`. Including the socket id is what stops
+ * a signature leaked from one browser being replayed from another.
  */
 class ChannelAuthenticator
 {
     /**
-     * Compute the auth signature an HTTP endpoint should hand back to the
-     * client for it to present when subscribing over the socket.
+     * The full `auth` value to hand a client: `{key}:{signature}`.
+     *
+     * @param string|null $channelData for presence channels, the exact JSON
+     *        string that will be sent as `channel_data`
      */
-    public function sign(Application $app, string $socketId, string $channel, ?array $channelData = null): string
+    public function authFor(Application $app, string $socketId, string $channel, ?string $channelData = null): string
     {
-        $string = $channelData !== null
-            ? "{$socketId}:{$channel}:" . json_encode($channelData, JSON_UNESCAPED_UNICODE)
-            : "{$socketId}:{$channel}";
-
-        return hash_hmac('sha256', $string, $app->secret);
+        return $app->key . ':' . $this->signature($app, $socketId, $channel, $channelData);
     }
 
     /**
-     * Verify a signature presented by a client at subscribe time.
+     * The HMAC alone.
+     *
+     * @param string|null $channelData the exact JSON string, already encoded
      */
-    public function verify(Application $app, string $socketId, string $channel, string $signature, ?array $channelData = null): bool
+    public function signature(Application $app, string $socketId, string $channel, ?string $channelData = null): string
     {
-        $expected = $this->sign($app, $socketId, $channel, $channelData);
+        $payload = $channelData !== null
+            ? "{$socketId}:{$channel}:{$channelData}"
+            : "{$socketId}:{$channel}";
 
-        return hash_equals($expected, $signature);
+        return hash_hmac('sha256', $payload, $app->secret);
+    }
+
+    /**
+     * Verify a signature against the channel data exactly as the client sent it.
+     *
+     * The string matters, not the value it decodes to. Re-encoding the decoded
+     * array here would produce different JSON from what the application signed
+     * — different key order, different unicode and slash escaping — and every
+     * presence subscription would fail a signature that was in fact correct.
+     */
+    public function verifySigned(
+        Application $app,
+        string $socketId,
+        string $channel,
+        string $signature,
+        ?string $channelData = null,
+    ): bool {
+        return hash_equals(
+            $this->signature($app, $socketId, $channel, $channelData),
+            $signature,
+        );
+    }
+
+    /**
+     * Sign from an array, encoding it here.
+     *
+     * For an authorization endpoint that has the user's details as an array:
+     * this returns both the `auth` value and the `channel_data` string, and
+     * the caller must send back *that* string rather than re-encoding, or the
+     * two will not agree.
+     *
+     * @param array{user_id: string|int, user_info?: array} $channelData
+     * @return array{auth: string, channel_data: string}
+     */
+    public function presenceAuth(Application $app, string $socketId, string $channel, array $channelData): array
+    {
+        $encoded = json_encode($channelData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        return [
+            'auth' => $this->authFor($app, $socketId, $channel, $encoded),
+            'channel_data' => $encoded,
+        ];
     }
 
     public function isProtectedChannel(string $channel): bool
