@@ -1,193 +1,227 @@
 # LibxaSocket
 
-A standalone WebSocket server for **LibxaFrame**, built on Workerman —
-extracted out of the core framework into its own package, in the same
-spirit as Laravel Reverb (a dedicated realtime server your app talks to,
-rather than WS code baked into the framework core).
+A WebSocket server for [LibxaFrame](https://github.com/libxa-framework/libxa),
+speaking the Pusher protocol.
 
-## Why a separate package?
+That last part is the point. Rather than inventing a wire format and shipping a
+client to match, this implements the protocol Pusher defined and Laravel Reverb
+implements — so **Laravel Echo, `pusher-js`, and every other Pusher client work
+against it unchanged**, and so do the server libraries that publish to it.
 
-Not every LibxaFrame app needs a WebSocket server. Keeping it as an
-optional `libxa/socket` package means:
-
-- The core framework has one less runtime dependency (Workerman) for apps
-  that don't need realtime features.
-- `route:cache` / core routing isn't entangled with WS-specific routing.
-- You can version and update the socket server independently of the
-  framework.
-
-## Install
+Built on ReactPHP, the same foundation Reverb uses: `react/socket` for the
+event loop and listener, `ratchet/rfc6455` for the handshake and framing.
 
 ```bash
 composer require libxa/socket
-php Libxa package:discover
-php Libxa socket:install
+php libxa package:discover
+php libxa socket:install
+php libxa socket:start
 ```
 
-`socket:install` will:
+## What it does
 
-- Publish `config/socket.php` with a freshly generated app id/key/secret.
-- Add `SOCKET_HOST` / `SOCKET_PORT` / `SOCKET_WORKERS` to your `.env`.
-- Scaffold an example channel at `app/WebSockets/RandomChannel.php`.
-- Scaffold a demo page at `/socket-test` (controller-based, so it's safe
-  to run alongside `route:cache`).
+- **Public, private and presence channels.** The name prefix is the rule —
+  `private-` and `presence-` require a signature your application vouches for.
+- **A presence roster** that counts people rather than connections: one user
+  with two tabs is one member, and closing one tab is not leaving.
+- **A signed HTTP API** for publishing, at Pusher's own routes, so
+  `pusher/pusher-php-server` can talk to it.
+- **Client events** (`client-*`) relayed browser-to-browser on private and
+  presence channels, for typing indicators and cursors.
+- **`broadcast(new SomethingHappened)`** from your application, through a
+  broadcast driver.
 
-## Running the server
+## Setting up
 
-```bash
-php Libxa socket:start                # foreground, Ctrl+C to stop
-php Libxa socket:start --port=8090    # custom port
-php Libxa socket:start --debug        # verbose connection/message logging
-php Libxa socket:restart              # signal running workers to restart
+`socket:install` publishes `config/socket.php`, generates a key and secret into
+your `.env`, and scaffolds `routes/channels.php`.
+
+Then set the broadcast driver:
+
+```dotenv
+BROADCAST_DRIVER=socket
 ```
 
-On Windows, Workerman only supports a single process — `--workers` is
-ignored there (with a note), rather than silently pretending it worked.
+### Who may listen to what
 
-If the server fails to bind (`Unable to connect to tcp://...` /
-`WSAEACCES` on Windows), `socket:start` now prints actionable next steps
-instead of a raw stack trace — check the note it prints for the most
-common Windows cause (Hyper-V/WSL2 port-exclusion ranges).
-
-## Writing a channel
-
-Channels are plain classes with lifecycle hooks, matched to a URI via the
-`#[WsRoute]` attribute:
+`routes/channels.php` decides. A private or presence channel with no rule here
+is **refused** — the alternative allows what nobody has thought about, which
+makes every channel public until somebody remembers it exists.
 
 ```php
-namespace App\WebSockets;
+/** @var \LibxaSocket\Channels\ChannelGate $channel */
 
-use LibxaSocket\WsChannel;
-use LibxaSocket\WsConnection;
-use LibxaSocket\Attributes\WsRoute;
-use LibxaSocket\Attributes\OnEvent;
+// Only the owner may watch their order.
+$channel->register('orders.{orderId}', fn ($user, string $orderId): bool =>
+    Order::find($orderId)?->user_id === $user->id);
 
-#[WsRoute('/ws/chat/{room}')]
-class ChatChannel extends WsChannel
+// Presence: return the profile the rest of the room should see.
+$channel->register('room.{roomId}', fn ($user, string $roomId): array => [
+    'user_id' => (string) $user->id,
+    'user_info' => ['name' => $user->name],
+]);
+```
+
+Register the rule once, without the prefix: `room.{roomId}` covers both
+`private-room.1` and `presence-room.1`.
+
+Whatever a presence callback returns is visible to **everyone else in the
+channel**, so it should carry a display name and nothing more.
+
+If your realtime identity is not your login — an anonymous support chat keyed
+on a session, say — replace the resolver:
+
+```php
+$channel->resolveUserUsing(fn () => session()?->get('visitor'));
+```
+
+## Broadcasting
+
+```php
+final class OrderShipped implements ShouldBroadcast
 {
-    public function onOpen(WsConnection $connection): void
+    public function __construct(public readonly Order $order) {}
+
+    public function broadcastOn(): array
     {
-        $connection->join($connection->param('room'));
+        return ['private-orders.' . $this->order->id];
     }
 
-    #[OnEvent('message')]
-    public function handleMessage(WsConnection $connection, $message): void
+    public function broadcastWith(): array
     {
-        $connection->broadcastToRoom($connection->param('room'), 'message', [
-            'text' => $message->data('text'),
-        ]);
+        return ['status' => $this->order->status];
     }
 
-    public function onClose(WsConnection $connection): void
+    public function broadcastAs(): string
     {
-        // cleanup handled automatically for room membership
+        return 'OrderShipped';
     }
 }
 ```
 
-Channel classes under `app/WebSockets/` are scanned automatically when the
-socket server boots.
-
-## Multiple apps
-
-`config/socket.php` supports registering more than one app (each with its
-own id/key/secret), the same way Reverb does — useful if you're running
-one socket server for several tenants/products:
-
 ```php
-'apps' => [
-    ['id' => 'main',  'key' => env('SOCKET_APP_KEY'),  'secret' => env('SOCKET_APP_SECRET')],
-    ['id' => 'admin', 'key' => env('ADMIN_SOCKET_KEY'), 'secret' => env('ADMIN_SOCKET_SECRET')],
-],
+broadcast(new OrderShipped($order));
 ```
 
-Resolve the registry anywhere via the container:
+Delivery is best-effort on purpose. A socket server that is down must not take
+an HTTP request down with it: the order was placed, and the live update not
+arriving is worth logging rather than a 500. Anything that genuinely cannot
+lose an event needs a queue.
 
-```php
-use LibxaSocket\ApplicationManager;
+## Connecting a browser
 
-$apps = app(ApplicationManager::class);
-$app  = $apps->findById('main');
-```
+With Laravel Echo:
 
-## Authorizing private/presence channels
+```js
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
 
-`LibxaSocket\Auth\ChannelAuthenticator` gives you a Pusher/Reverb-style
-signed-auth primitive for channels your app wants to gate (naming
-convention: prefix a channel with `private-` or `presence-`). Typical use
-is an HTTP endpoint your frontend calls before subscribing:
+window.Pusher = Pusher;
 
-```php
-use LibxaSocket\Auth\ChannelAuthenticator;
-use LibxaSocket\ApplicationManager;
-
-Route::post('/socket/auth', function (Request $request) use ($apps, $auth) {
-    $app = $apps->findById('main');
-
-    $signature = $auth->sign(
-        $app,
-        $request->input('socket_id'),
-        $request->input('channel_name'),
-    );
-
-    return ['auth' => "{$app->key}:{$signature}"];
+window.Echo = new Echo({
+    broadcaster: 'pusher',
+    key: import.meta.env.VITE_SOCKET_APP_KEY,
+    wsHost: window.location.hostname,
+    wsPort: 8080,
+    forceTLS: false,
+    enabledTransports: ['ws'],
 });
+
+Echo.join(`room.${roomId}`)
+    .here(users => console.log(users))
+    .joining(user => console.log(user.name, 'joined'))
+    .leaving(user => console.log(user.name, 'left'))
+    .listen('MessagePosted', e => console.log(e.body));
 ```
 
-Your channel's `onOpen()`/subscribe handling can then call
-`$auth->verify(...)` with the signature the client presents, and reject
-the subscription if it doesn't match. `ChannelAuthenticator::isProtectedChannel()`
-/ `isPresenceChannel()` are there to check the naming convention.
+Nothing here is LibxaSocket-specific. That is the point of implementing the
+protocol rather than inventing one.
 
-## Presence channels
+`examples/chat` has a working room — presence, live messages and typing
+indicators — written against the raw protocol rather than Echo, so every
+message the wire format involves is visible in one file.
 
-`LibxaSocket\Channels\PresenceRegistry` tracks who's currently on a
-`presence-*` channel (per-worker, in-memory) so you can tell newly-joining
-members who else is there, and announce joins/leaves:
+## Running it
 
-```php
-use LibxaSocket\Channels\PresenceRegistry;
-
-$presence = app(PresenceRegistry::class);
-$presence->join($channel, $connection->id, ['name' => $user->name]);
-$members = $presence->members($channel);
+```bash
+php libxa socket:start                 # foreground, Ctrl+C to stop
+php libxa socket:start --port=8090     # somewhere else
+php libxa socket:start --debug         # log every connection and message
+php libxa socket:restart               # ask a running server to stop
 ```
 
-For a single-worker deployment this is enough. For horizontal scaling
-across multiple socket-server processes, you'd back this with Redis
-instead — that's a deliberate scope cut here, not an oversight; happy to
-build that out if/when you need to scale past one process.
+The server holds every connection in memory and loads your code once at boot,
+so deploying does not reach it: until it restarts it keeps running the code it
+started with. `socket:restart` writes a signal the running server watches; it
+stops cleanly and whatever supervises it — systemd, supervisord, Docker —
+starts it again. On its own it stops the server and does not start it.
 
-## Broadcasting from your HTTP app
+### In front of a browser on HTTPS
 
-`LibxaSocket\Broadcasting\WsBroadcast` is the facade your controllers/jobs
-use to push events from the normal HTTP process into the socket server:
+This server speaks `ws://`, not `wss://`. A page served over HTTPS will refuse
+a `ws://` connection outright, so in production put it behind a reverse proxy
+that terminates TLS:
 
-```php
-use LibxaSocket\Broadcasting\WsBroadcast;
-
-WsBroadcast::toRoom('chat.general')->emit('message', ['text' => 'hi']);
+```nginx
+location /app {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+}
 ```
 
-Internally this goes through the framework's existing pluggable
-`Broadcaster` (`Libxa\Broadcasting\BroadcastManager`), the same one used by
-`ws()` / `broadcast()` helpers — set `BROADCAST_DRIVER=ws` in `.env` if
-you want that to be the default driver.
+`proxy_read_timeout` matters. The default is 60 seconds, and a WebSocket that
+is merely quiet looks exactly like one that has stalled.
 
-## What moved from the core framework
+## The HTTP API
 
-If you're upgrading from a version of LibxaFrame that had `ws:serve` /
-`ws:install` built in, here's the mapping:
+Pusher's routes, signed with Pusher's scheme:
 
-| Old (core) | New (libxa/socket) |
-|---|---|
-| `php Libxa ws:serve` | `php Libxa socket:start` |
-| `php Libxa ws:install` | `php Libxa socket:install` |
-| `Libxa\WebSockets\*` | `LibxaSocket\*` |
-| `Libxa\Reactive\WsServer` | `LibxaSocket\Server` |
-| `WS_HOST` / `WS_PORT` / `WS_WORKERS` | `SOCKET_HOST` / `SOCKET_PORT` / `SOCKET_WORKERS` (old `WS_*` vars still work as a fallback) |
+```text
+POST /apps/{id}/events
+GET  /apps/{id}/channels
+GET  /apps/{id}/channels/{channel}
+GET  /apps/{id}/channels/{channel}/users
+GET  /up                                  health, unsigned
+```
 
-`Libxa\Reactive\ReactiveComponent` and `DiffEngine` (the server-driven UI
-diffing primitives used by `@reactive` Blade components) stayed in the
-core framework — they're transport-agnostic and don't need Workerman
-directly, only a running socket server to actually push their diffs.
+Everything but `/up` requires a signature. An unauthenticated publish endpoint
+is a way for anyone who can reach the port to send any message to any of your
+users.
+
+## Security notes
+
+- **The key is public, the secret is not.** The key ships in your JavaScript
+  and identifies which application a browser is connecting to. The secret signs
+  channel authorizations and the publishing API; anyone holding it can send any
+  message to any of your users.
+- **Signatures cover the socket id**, so one minted for a connection cannot be
+  replayed by another.
+- **Presence `channel_data` is verified byte-for-byte as sent.** Tampering with
+  it to join as somebody else fails the signature.
+- **`pusher:` and `pusher_internal:` event names are reserved** on the
+  publishing API. A forged `member_added` would corrupt every roster listening.
+- **Client events are private and presence only.** A public channel anyone can
+  join is one anyone could publish to.
+
+## Scaling
+
+One process, holding every connection and channel in memory. That is a real
+limit: two processes do not share channels, so a client connected to one will
+not receive an event published through the other.
+
+For a single server this is usually fine — ReactPHP handles thousands of
+connections in one process, and the work per message is small. Beyond that you
+need a shared backplane, which this does not have yet. Reverb solves it with
+Redis pub/sub; the same approach fits here and is the obvious next thing to
+build.
+
+## Requirements
+
+PHP 8.3+, and `libxa/framework` ^0.11.2.
+
+## License
+
+MIT.
