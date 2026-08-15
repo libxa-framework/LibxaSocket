@@ -4,12 +4,13 @@ A WebSocket server for [LibxaFrame](https://github.com/libxa-framework/libxa),
 speaking the Pusher protocol.
 
 That last part is the point. Rather than inventing a wire format and shipping a
-client to match, this implements the protocol Pusher defined and Laravel Reverb
-implements — so **Laravel Echo, `pusher-js`, and every other Pusher client work
-against it unchanged**, and so do the server libraries that publish to it.
+client to match, this implements the protocol Pusher defined — so **`pusher-js`
+and every other Pusher client work against it unchanged**, and so do the server
+libraries that publish to it.
 
-Built on ReactPHP, the same foundation Reverb uses: `react/socket` for the
-event loop and listener, `ratchet/rfc6455` for the handshake and framing.
+Built on ReactPHP, the same foundation the reference PHP implementation of this
+protocol uses: `react/socket` for the event loop and listener,
+`ratchet/rfc6455` for the handshake and framing.
 
 ```bash
 composer require libxa/socket
@@ -126,45 +127,26 @@ echo.join(`room.${roomId}`)
     .listen('MessagePosted', e => console.log(e.body));
 ```
 
-[`@libxa/echo`](https://github.com/libxa-framework/libxa-echo) is Laravel Echo
-over pusher-js with the defaults filled in — several of which are quietly wrong
-otherwise. The one worth knowing: Echo prefixes `App.Events` onto every name
-given to `.listen()`, while this server publishes `broadcastAs()` unprefixed,
-so a correct-looking client receives nothing at all, with no error.
+[`@libxa/echo`](https://github.com/libxa-framework/libxa-echo) wraps the
+standard Pusher client with the defaults filled in — several of which are
+quietly wrong otherwise. The one worth knowing: the client prefixes
+`App.Events` onto every name given to `.listen()`, while this server publishes
+`broadcastAs()` unprefixed, so a correct-looking client receives nothing at
+all, with no error.
 
-You can use Echo directly if you prefer — the protocol is the protocol, and
-nothing here is LibxaSocket-specific, which is the point of implementing it
-rather than inventing one. The wrapper exists so that installing a package
-named after another framework is not step one, and so those defaults are set
-by something that was tested against this server.
+You can wire a Pusher client up yourself if you prefer — the protocol is the
+protocol, and nothing here is LibxaSocket-specific, which is the point of
+implementing it rather than inventing one. The wrapper exists so that those
+defaults come from something tested against this server.
 
-<details>
-<summary>The same thing without the wrapper</summary>
-
-```js
-import Echo from 'laravel-echo';
-import Pusher from 'pusher-js';
-
-window.Pusher = Pusher;
-
-window.Echo = new Echo({
-    broadcaster: 'pusher',
-    key: import.meta.env.VITE_SOCKET_APP_KEY,
-    wsHost: window.location.hostname,
-    wsPort: 8080,
-    forceTLS: false,
-    enabledTransports: ['ws'],
-    cluster: '',
-    disableStats: true,
-    namespace: false,   // the one that silently breaks everything
-});
-```
-
-</details>
+Wiring a Pusher client up directly works too. If you do, these are the
+settings that matter: `cluster: ''`, `disableStats: true`,
+`enabledTransports: ['ws']`, and `namespace: false` — the last being the one
+that silently breaks everything if you miss it.
 
 `examples/chat` has a working room — presence, live messages and typing
-indicators — written against the raw protocol rather than Echo, so every
-message the wire format involves is visible in one file.
+indicators — written against the raw protocol rather than a client library, so
+every message the wire format involves is visible in one file.
 
 ## Running it
 
@@ -239,9 +221,8 @@ not receive an event published through the other.
 
 For a single server this is usually fine — ReactPHP handles thousands of
 connections in one process, and the work per message is small. Beyond that you
-need a shared backplane, which this does not have yet. Reverb solves it with
-Redis pub/sub; the same approach fits here and is the obvious next thing to
-build.
+need a shared backplane, which this does not have yet. The usual answer is
+Redis pub/sub; it fits here and is the obvious next thing to build.
 
 ## Requirements
 

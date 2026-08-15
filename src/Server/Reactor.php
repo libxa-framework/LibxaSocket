@@ -23,7 +23,7 @@ use React\Socket\SocketServer;
  * The server.
  *
  * One TCP listener speaking two things, decided by the request path, which is
- * how Reverb and Pusher itself are arranged:
+ * how Pusher itself is arranged:
  *
  *   /app/{key}   a WebSocket connection from a browser
  *   /apps/{id}/* the signed HTTP API your application publishes through
@@ -32,9 +32,9 @@ use React\Socket\SocketServer;
  * firewall rules and two URLs in every deployment, to separate traffic that is
  * already separated by path.
  *
- * ReactPHP rather than Workerman, matching what Laravel Reverb is built on:
- * react/socket for the loop and the listener, ratchet/rfc6455 for the
- * handshake and framing.
+ * ReactPHP rather than Workerman, matching what the reference PHP
+ * implementation of this protocol is built on: react/socket for the loop and
+ * the listener, ratchet/rfc6455 for the handshake and framing.
  */
 class Reactor
 {

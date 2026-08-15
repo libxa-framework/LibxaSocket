@@ -10,9 +10,9 @@ use Libxa\Http\Request;
  * Who may listen to what.
  *
  * Applications register a callback per channel, and the callback decides. The
- * shape is Laravel's, because it is the right shape: the channel name can
- * carry a parameter, and the callback receives the authenticated user plus
- * whatever the name matched.
+ * shape is the conventional one, because it is the right shape: the channel
+ * name can carry a parameter, and the callback receives the authenticated
+ * user plus whatever the name matched.
  *
  *     Channel::private('orders.{orderId}', fn ($user, $orderId) =>
  *         Order::find($orderId)?->user_id === $user->id);

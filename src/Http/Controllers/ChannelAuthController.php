@@ -11,9 +11,9 @@ use Libxa\Http\Request;
 use Libxa\Http\Response;
 
 /**
- * The endpoint Laravel Echo calls before joining a private or presence channel.
+ * The endpoint a client calls before joining a private or presence channel.
  *
- * Echo POSTs `{socket_id, channel_name}` here with the browser's session
+ * The browser POSTs `{socket_id, channel_name}` here with its session
  * cookie, and expects `{auth: "key:signature"}` back — plus `channel_data` for
  * presence channels. Its job is to answer one question: may *this* user listen
  * to *this* channel?

@@ -1,6 +1,6 @@
 {
     "name": "libxa/socket",
-    "description": "A Pusher-protocol WebSocket server for LibxaFrame, built on ReactPHP. Works with Laravel Echo unchanged.",
+    "description": "A Pusher-protocol WebSocket server for LibxaFrame, built on ReactPHP. Works with existing Pusher clients unchanged.",
     "type": "library",
     "license": "MIT",
     "keywords": ["libxa", "libxaframe", "websocket", "realtime", "pusher", "echo", "reactphp", "broadcasting"],

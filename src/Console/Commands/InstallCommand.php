@@ -51,7 +51,7 @@ class InstallCommand extends Command
         $io->listing([
             'Start the server:  php libxa socket:start',
             'Set BROADCAST_DRIVER=socket in your .env so broadcast() publishes through it.',
-            'Point Laravel Echo at it — see the README for the six lines of JavaScript.',
+            'Point the browser at it: npm install @libxa/echo, then two lines. See the README.',
         ]);
 
         if ($credentials !== null) {

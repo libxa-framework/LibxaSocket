@@ -73,7 +73,7 @@
  * A minimal Pusher-protocol client.
  *
  * Written out rather than pulling in pusher-js so the protocol is visible:
- * this is every message the wire format involves. Laravel Echo speaks exactly
+ * this is every message the wire format involves. @libxa/echo speaks exactly
  * this, so swapping it in is a configuration change, not a rewrite.
  */
 const config = {

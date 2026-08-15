@@ -7,7 +7,7 @@ namespace LibxaSocket;
 /**
  * A registered application.
  *
- * Mirrors Reverb/Pusher's concept of an "app": every connection is scoped
+ * Mirrors Pusher's concept of an "app": every connection is scoped
  * to one app (by id, in the connection path `/app/{id}`), and every
  * private/presence channel subscription for that app is authorized using
  * the app's secret (see Auth\ChannelAuthenticator).

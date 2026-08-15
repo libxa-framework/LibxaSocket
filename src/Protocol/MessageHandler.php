@@ -16,8 +16,8 @@ use LibxaSocket\Auth\ChannelAuthenticator;
  * one.
  *
  * Implementing the wire protocol rather than inventing one is the entire
- * reason Laravel Echo, pusher-js and every other Pusher client work against
- * this server without a shim.
+ * reason pusher-js and every other Pusher client work against this server
+ * without a shim.
  */
 class MessageHandler
 {

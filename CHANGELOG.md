@@ -14,27 +14,29 @@ The server now speaks the Pusher protocol, on ReactPHP.
 > **This replaces the previous server rather than extending it.** The old one
 > had a wire format of its own and a channel-class API built on PHP attributes;
 > both are gone. Nothing that spoke to the old server speaks to this one — but
-> Laravel Echo, `pusher-js` and `pusher/pusher-php-server` all do, without a
-> shim.
+> `pusher-js`, `pusher/pusher-php-server` and every other Pusher client do,
+> without a shim.
 
 ### Why the rewrite
 
 The old implementation was built on Workerman with a bespoke protocol, and its
 own notes recorded the consequence: *"I did not reimplement the full Pusher
-wire protocol, which would break Laravel Echo on the client side."* That meant
+wire protocol, which would break the standard clients."* That meant
 every client had to be written against this server specifically, and every
 existing realtime tool was unusable with it.
 
-Laravel Reverb is built on **ReactPHP**, not Workerman — `react/socket` for the
-loop and listener, `ratchet/rfc6455` for the handshake and framing. This now
-uses the same stack, and implements the same protocol.
+The reference PHP implementation of this protocol is built on **ReactPHP**, not
+Workerman — `react/socket` for the loop and listener, `ratchet/rfc6455` for the
+handshake and framing. This now uses the same stack, and implements the same
+protocol.
 
 ### Added
 
 - **The Pusher wire protocol.** `pusher:connection_established`,
   `pusher:subscribe` / `unsubscribe`, `pusher:ping` / `pong`, `pusher:error`,
   `pusher_internal:subscription_succeeded`, `member_added`, `member_removed`,
-  and `client-*` events. Laravel Echo connects to it as if it were Pusher.
+  and `client-*` events. Existing Pusher clients connect to it as if it were
+  Pusher.
 
 - **Public, private and presence channels**, distinguished by name prefix.
   The prefix is the whole rule, so a channel cannot be left unprotected by
@@ -110,8 +112,8 @@ uses the same stack, and implements the same protocol.
 One process, holding every connection and channel in memory. Two processes do
 not share channels, so a client connected to one will not receive an event
 published through the other. For a single server this is usually fine; beyond
-that a shared backplane is needed, which this does not have yet. Reverb solves
-it with Redis pub/sub and the same approach fits here.
+that a shared backplane is needed, which this does not have yet. The usual
+answer is Redis pub/sub and it fits here.
 
 ### Requires
 
