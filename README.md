@@ -110,7 +110,36 @@ lose an event needs a queue.
 
 ## Connecting a browser
 
-With Laravel Echo:
+```bash
+npm install @libxa/echo
+```
+
+```js
+import { createEcho } from '@libxa/echo';
+
+const echo = createEcho({ key: import.meta.env.VITE_SOCKET_APP_KEY });
+
+echo.join(`room.${roomId}`)
+    .here(users => console.log(users))
+    .joining(user => console.log(user.name, 'joined'))
+    .leaving(user => console.log(user.name, 'left'))
+    .listen('MessagePosted', e => console.log(e.body));
+```
+
+[`@libxa/echo`](https://github.com/libxa-framework/libxa-echo) is Laravel Echo
+over pusher-js with the defaults filled in — several of which are quietly wrong
+otherwise. The one worth knowing: Echo prefixes `App.Events` onto every name
+given to `.listen()`, while this server publishes `broadcastAs()` unprefixed,
+so a correct-looking client receives nothing at all, with no error.
+
+You can use Echo directly if you prefer — the protocol is the protocol, and
+nothing here is LibxaSocket-specific, which is the point of implementing it
+rather than inventing one. The wrapper exists so that installing a package
+named after another framework is not step one, and so those defaults are set
+by something that was tested against this server.
+
+<details>
+<summary>The same thing without the wrapper</summary>
 
 ```js
 import Echo from 'laravel-echo';
@@ -125,17 +154,13 @@ window.Echo = new Echo({
     wsPort: 8080,
     forceTLS: false,
     enabledTransports: ['ws'],
+    cluster: '',
+    disableStats: true,
+    namespace: false,   // the one that silently breaks everything
 });
-
-Echo.join(`room.${roomId}`)
-    .here(users => console.log(users))
-    .joining(user => console.log(user.name, 'joined'))
-    .leaving(user => console.log(user.name, 'left'))
-    .listen('MessagePosted', e => console.log(e.body));
 ```
 
-Nothing here is LibxaSocket-specific. That is the point of implementing the
-protocol rather than inventing one.
+</details>
 
 `examples/chat` has a working room — presence, live messages and typing
 indicators — written against the raw protocol rather than Echo, so every
